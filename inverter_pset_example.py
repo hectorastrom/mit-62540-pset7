@@ -33,6 +33,29 @@ T_AU = 15e-7             # cm, thickness of the Au (15 nm)
 VDD = 10.0               # V
 
 
+# ---------- OUR CHOSEN PARAMETERS ----------
+# Physical positioning, relative to bottom left of 1.5mm square
+R_ORIGIN = (300, 1400)  
+T_ORIGIN = (800, 1400)
+
+# Resistor
+R_W       = 4    # um
+R_SPACE   = 16   # um
+R_LEG_LEN = 1200 # um = 1.2mm
+R_NUM_LEG = 20   # count
+
+# Transistor
+T_L          = 5     # um, channel length (>= MIN_L)
+T_N_CHANNELS = 50    # finger_fet is T_N_CHANNELS + 1 fingers TODO:
+T_OVERLAP    = 200   # um TODO:
+T_WF         = 4     # um, finger width (>= MIN_WIDTH)
+T_TIP        = 20    # um TODO:
+
+
+
+
+
+
 def rect(x0, y0, x1, y1, layer=METAL):
     return gdspy.Rectangle((x0, y0), (x1, y1), layer=layer)
 
@@ -164,12 +187,6 @@ def main():
 
     # -------- RESISTOR (Vdd -> V_out) --------
     rcell = lib.new_cell("RESISTOR")
-    R_ORIGIN = (300, 1400) # relative to bottom left of frame
-    R_W       = 4    # um
-    R_SPACE   = 16   # um
-    R_LEG_LEN = 1200 # um = 1.2mm
-    R_NUM_LEG = 20   # count
-
     # Resistance of meander resistor is R = N_sq * R_sqAu
     # Placement within cell
     sq, w_m, h_m = meander(rcell, 0, 0, R_W, R_SPACE, R_LEG_LEN, R_NUM_LEG, lead=150, lead_w=20)      # from the VDD port to the OUT node
@@ -177,50 +194,41 @@ def main():
     print(f"Meander resistor resistance: sq*RSH_AU={R_res:.1f} Ohm")
 
     # -------- TRANSISTOR (V_out -> GND) --------
-    T_SEPARATION_L = 5   # um; 5um minimum
-    T_N_FINGERS    = 50  # count (TODO:)
-    T_OVERLAP      = 200 # um (TODO:)
-    T_W            = 4  # um; 4um min
-    T_TIP          = 20 # um (TODO:)
+    tcell = lib.new_cell("TRANSISTOR")
+    W_T, L_T, w_f, h_f = finger_fet(tcell, 0, 0, T_L, T_N_CHANNELS, T_OVERLAP, T_WF, T_TIP)  # from the OUT node to the GND port
 
-    W, L, w_f, h_f = finger_fet(frame, 0, 0, T_SEPARATION_L, T_N_FINGERS, T_OVERLAP, T_W, T_TIP)  # from the OUT node to the GND port
-    # CONNECT WITH rect() leads
-    def R_t(voltage : int):
-        res_range = (0, 0) # lo, hi — resistance per square in MOhm
-        match voltage: 
-            case 30:
-                res_range = (10, 50)
-            case 20: res_range = (20, 100)
-            case 0:  res_range = (1000, 16000)
-        # for on threshold, a higher resistance is WORSE as it means more of the
-        # voltage is being disappated across the transistor, raising V_out
-        worst_case = res_range[1] 
+    RSQ_MOS2 = {
+        30: (10e6, 50e6),
+        20: (20e6, 100e6),
+        0: (1e9, 6e9),
+    }  # ohm/sq: (low, hi)
 
-        return worst_case
+    def r_fet(v_gate, W, L):
+        lo, hi = RSQ_MOS2[v_gate]
+        return lo * L / W, hi * L / W
+
+    R_on_lo, R_on_hi = r_fet(30, W_T, L_T)
+    print(
+        f"FET: W/L = {W_T / L_T:.0f}, R_on = {R_on_lo / 1e3:.1f} to {R_on_hi / 1e3:.1f} kOhm"
+    )
 
     # -------- CHECKS --------
-    # Trace widths
-    _min_trace_width = min(R_W, T_W) # um
-    assert _min_trace_width >= 4, f"Trace width {R_W=} or {T_W=} are under 4um"
+    VDD = 10.0
+    assert T_L >= MIN_L, f"channel length {T_L} um < {MIN_L} um"
+    assert min(R_W, T_WF) >= MIN_WIDTH, f"line width under {MIN_WIDTH} um"
+    assert R_SPACE >= MIN_SPACE and T_TIP >= MIN_SPACE, "gap under 10 um"
 
-    # LOW < 25% of VDD
-    HIGH_V_TRANSISTOR = 30 # V - what we want to guarantee is logic LOW (after inversion)
-    _total_resistance = R_t(HIGH_V_TRANSISTOR) + R_res
-    _resistor_r_fraction = R_res / _total_resistance 
-    _transistor_r_fraction = R_t(HIGH_V_TRANSISTOR) / _total_resistance
-    assert _transistor_r_fraction < 0.25, "Inverter logic LOW exceeds .25*VDD"
+    v_low = R_on_hi / (R_on_hi + R_res)  # V_out / VDD at Vin = +30 V
+    assert v_low <= 0.25, f"V_out LOW = {v_low:.2f} VDD > 0.25 VDD" # LOW state
 
-    # Current limits
-    _overall_current = VDD / _total_resistance
-    _current_limit =  J_MAX * _min_trace_width * T_AU*10e-2 * 10e4 # /cm^2 * um * cm * scale
-    assert _overall_current < _current_limit, f"Current {_overall_current} exceeds safe limit of {_current_limit}"
-
-    # TODO: more checks
+    I_worst = VDD / (R_on_lo + R_res) < max_current(R_W)  # highest current: FET at its lowest R
+    assert I_worst < max_current(R_W), f"{I_worst * 1e3:.2f} mA > {max_current(R_W) * 1e3:.2f} mA in the {R_W} um meander"
 
     top = lib.new_cell("TOP")
     # top.add(gdspy.CellReference(ex, (0, 0)))
+    frame.add(gdspy.CellReference(rcell, origin=R_ORIGIN, x_reflection=True))  # flip
+    frame.add(gdspy.CellReference(tcell, T_ORIGIN))
     top.add(gdspy.CellReference(frame, (0, 0)))
-    frame.add(gdspy.CellReference(rcell, origin=R_ORIGIN, x_reflection=True)) # flip
 
     path = os.path.splitext(os.path.abspath(__file__))[0] + ".gds"
     lib.write_gds(path)
