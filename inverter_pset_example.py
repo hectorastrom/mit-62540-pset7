@@ -35,25 +35,21 @@ VDD = 10.0               # V
 
 # ---------- OUR CHOSEN PARAMETERS ----------
 # Physical positioning, relative to bottom left of 1.5mm square
-R_ORIGIN = (300, 1400)  
-T_ORIGIN = (800, 1400)
+R_ORIGIN = (220, 1410)  
+T_ORIGIN = (550, 1200)
 
 # Resistor
 R_W       = 4    # um
 R_SPACE   = 16   # um
 R_LEG_LEN = 1200 # um = 1.2mm
-R_NUM_LEG = 20   # count
+R_NUM_LEG = 12   # count
 
 # Transistor
 T_L          = 5     # um, channel length (>= MIN_L)
-T_N_CHANNELS = 50    # finger_fet is T_N_CHANNELS + 1 fingers TODO:
-T_OVERLAP    = 200   # um TODO:
+T_N_CHANNELS = 110   # finger_fet is T_N_CHANNELS + 1 fingers
+T_OVERLAP    = 800   # um
 T_WF         = 4     # um, finger width (>= MIN_WIDTH)
-T_TIP        = 20    # um TODO:
-
-
-
-
+T_TIP        = 15    # um 
 
 
 def rect(x0, y0, x1, y1, layer=METAL):
@@ -164,24 +160,6 @@ def inverter_frame(cell, size=FRAME):
 def main():
     lib = gdspy.GdsLibrary(unit=1e-6, precision=1e-9)
 
-    # ex = lib.new_cell("EXAMPLES")
-    # W, L, w_f, h_f = finger_fet(ex, 0, 0)
-    # note(ex, "finger FET", 0, h_f + 40)
-    # note(ex, f"W/L = {W / L:.0f}", 0, -70)
-    # print(f"finger FET: L = {L:g} um, W = {W / 1000:g} mm, W/L = {W / L:.0f}, size {w_f:.0f} x {h_f:.0f} um")
-
-    # wl = ring_fet(ex, 750, 270)
-    # note(ex, "ring FET", 600, 620)
-    # note(ex, f"W/L = {wl:.0f}", 600, -70)
-    # print(f"ring FET: r_in = 150 um, L = 10 um, W/L = {wl:.0f}")
-
-    # sq, w_m, h_m = meander(ex, 1150, 20)
-    # note(ex, "meander resistor", 1150, h_m + 60)
-    # note(ex, f"R = {sq * RSH_AU / 1000:.1f} kOhm", 1150, -70)
-    # print(f"meander: 4 um line, 16 um space, 40 legs x 500 um, {sq:.0f} squares, "
-    #       f"R = {sq * RSH_AU / 1000:.1f} kOhm at {RSH_AU:g} ohm/sq, size {w_m:.0f} x {h_m:.0f} um, "
-    #       f"at most {max_current(4.0) * 1e3:.1f} mA in its 4 um line")
-
     frame = lib.new_cell("FRAME")
     inverter_frame(frame)
 
@@ -189,7 +167,7 @@ def main():
     rcell = lib.new_cell("RESISTOR")
     # Resistance of meander resistor is R = N_sq * R_sqAu
     # Placement within cell
-    sq, w_m, h_m = meander(rcell, 0, 0, R_W, R_SPACE, R_LEG_LEN, R_NUM_LEG, lead=150, lead_w=20)      # from the VDD port to the OUT node
+    sq, w_m, h_m = meander(rcell, 0, 0, R_W, R_SPACE, R_LEG_LEN, R_NUM_LEG, lead=150, lead_w=40)      # from the VDD port to the OUT node
     R_res = sq * RSH_AU
     print(f"Meander resistor resistance: sq*RSH_AU={R_res:.1f} Ohm")
 
@@ -219,15 +197,27 @@ def main():
     assert R_SPACE >= MIN_SPACE and T_TIP >= MIN_SPACE, "gap under 10 um"
 
     v_low = R_on_hi / (R_on_hi + R_res)  # V_out / VDD at Vin = +30 V
+    print(f"Voltage at low = {v_low:.2f} * VDD")
     assert v_low <= 0.25, f"V_out LOW = {v_low:.2f} VDD > 0.25 VDD" # LOW state
 
     I_worst = VDD / (R_on_lo + R_res) < max_current(R_W)  # highest current: FET at its lowest R
+    print(f"Max current: {max_current(R_W):.3f}")
     assert I_worst < max_current(R_W), f"{I_worst * 1e3:.2f} mA > {max_current(R_W) * 1e3:.2f} mA in the {R_W} um meander"
 
     top = lib.new_cell("TOP")
-    # top.add(gdspy.CellReference(ex, (0, 0)))
     frame.add(gdspy.CellReference(rcell, origin=R_ORIGIN, x_reflection=True))  # flip
-    frame.add(gdspy.CellReference(tcell, T_ORIGIN))
+    # top is DRAIN, bottom is SOURCE; so rotating -90 puts SRC on left and DRAIN
+    # on right
+    frame.add(gdspy.CellReference(tcell, T_ORIGIN, rotation = -90))
+    
+    # Wires
+    wires = lib.new_cell("WIRES")
+    wire_width = 40
+    wires.add(rect(550, 700, 550 + wire_width, 1400)) # SRC up
+    wires.add(rect(550, 1390, 750, 1390 + wire_width)) # SRC right to OUT
+    wires.add(rect(1460-wire_width, 1200, 1460, 1390+wire_width))
+    top.add(gdspy.CellReference(wires, (0, 0)))
+    
     top.add(gdspy.CellReference(frame, (0, 0)))
 
     path = os.path.splitext(os.path.abspath(__file__))[0] + ".gds"
