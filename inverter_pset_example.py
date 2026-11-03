@@ -35,7 +35,7 @@ VDD = 10.0               # V
 
 # ---------- OUR CHOSEN PARAMETERS ----------
 # Physical positioning, relative to bottom left of 1.5mm square
-R_ORIGIN = (220, 1410)  
+R_ORIGIN = (240, 1410)  
 T_ORIGIN = (550, 1200)
 
 # Resistor
