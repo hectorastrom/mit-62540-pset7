@@ -41,8 +41,8 @@ T_ORIGIN = (550, 1200)
 # Resistor
 R_W       = 4    # um
 R_SPACE   = 16   # um
-R_LEG_LEN = 1200 # um = 1.2mm
-R_NUM_LEG = 12   # count
+R_LEG_LEN = 1350 # um = 1.2mm
+R_NUM_LEG = 14   # count
 
 # Transistor
 T_L          = 5     # um, channel length (>= MIN_L)
@@ -200,8 +200,8 @@ def main():
     print(f"Voltage at low = {v_low:.2f} * VDD")
     assert v_low <= 0.25, f"V_out LOW = {v_low:.2f} VDD > 0.25 VDD" # LOW state
 
-    I_worst = VDD / (R_on_lo + R_res) < max_current(R_W)  # highest current: FET at its lowest R
-    print(f"Max current: {max_current(R_W):.3f}")
+    I_worst = VDD / (R_on_lo + R_res)  # highest current: FET at its lowest R
+    print(f"Max current: {I_worst*1e3:.3f}mA")
     assert I_worst < max_current(R_W), f"{I_worst * 1e3:.2f} mA > {max_current(R_W) * 1e3:.2f} mA in the {R_W} um meander"
 
     top = lib.new_cell("TOP")
